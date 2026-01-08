@@ -96,11 +96,15 @@ jobs:
         . ~/esp/esp-idf/export.sh
         idf.py build
 
-    - name: Upload firmware artifacts
+    - name: Upload all build artifacts (keep original filenames)
       uses: actions/upload-artifact@v4
       with:
-        name: esp32p4-firmware
+        name: esp32p4-lvgl-demo-firmware
         path: |
-          ESP-IDF/lvgl_demo_v9/build/*.bin
-          ESP-IDF/lvgl_demo_v9/build/*.elf
-          ESP-IDF/lvgl_demo_v9/build/*.map
+          ESP-IDF/lvgl_demo_v9/build/bootloader/bootloader.bin
+          ESP-IDF/lvgl_demo_v9/build/partition_table/partition-table.bin
+          ESP-IDF/lvgl_demo_v9/build/lvgl_demo_v9.bin
+          ESP-IDF/lvgl_demo_v9/build/lvgl_demo_v9.elf
+          ESP-IDF/lvgl_demo_v9/build/lvgl_demo_v9.map
+          ESP-IDF/lvgl_demo_v9/build/flash_args
+          ESP-IDF/lvgl_demo_v9/build/*.zip
