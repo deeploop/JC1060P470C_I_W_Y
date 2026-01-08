@@ -147,11 +147,53 @@ jobs:
           echo "================================================"
           echo ""
 
-          # Verify both critical settings
+          # Check if values need patching
+          NEEDS_PATCH=0
+
+          if ! grep -q "CONFIG_ESP32P4_REV_MAX_FULL=199" sdkconfig; then
+            echo "⚠️ CONFIG_ESP32P4_REV_MAX_FULL is NOT 199 - needs patching"
+            NEEDS_PATCH=1
+          fi
+
+          if ! grep -q "CONFIG_ESP_REV_MAX_FULL=199" sdkconfig; then
+            echo "⚠️ CONFIG_ESP_REV_MAX_FULL is NOT 199 - needs patching"
+            NEEDS_PATCH=1
+          fi
+
+          if [ $NEEDS_PATCH -eq 1 ]; then
+            echo ""
+            echo "🔧 Patching sdkconfig to force correct chip revision values..."
+            echo ""
+
+            # Forcefully patch the values using sed
+            sed -i 's/CONFIG_ESP32P4_REV_MAX_FULL=.*/CONFIG_ESP32P4_REV_MAX_FULL=199/' sdkconfig
+            sed -i 's/CONFIG_ESP_REV_MAX_FULL=.*/CONFIG_ESP_REV_MAX_FULL=199/' sdkconfig
+
+            # Also ensure MIN values are correct
+            sed -i 's/CONFIG_ESP32P4_REV_MIN_FULL=.*/CONFIG_ESP32P4_REV_MIN_FULL=0/' sdkconfig
+            sed -i 's/CONFIG_ESP_REV_MIN_FULL=.*/CONFIG_ESP_REV_MIN_FULL=0/' sdkconfig
+
+            echo "✅ sdkconfig patched"
+            echo ""
+            echo "🔄 Running idf.py reconfigure to apply patched values..."
+            idf.py reconfigure
+            echo "✅ Configuration reloaded"
+            echo ""
+          fi
+
+          # Final verification after patching
+          echo "📋 Final verification after patching:"
+          echo "================================================"
+          grep "CONFIG_ESP32P4_REV.*FULL" sdkconfig || echo "⚠️ No ESP32P4_REV_FULL settings found"
+          grep "CONFIG_ESP_REV.*FULL" sdkconfig || echo "⚠️ No ESP_REV_FULL settings found"
+          echo "================================================"
+          echo ""
+
+          # Verify both critical settings - fail if still wrong
           ERRORS=0
 
           if ! grep -q "CONFIG_ESP32P4_REV_MAX_FULL=199" sdkconfig; then
-            echo "❌ ERROR: CONFIG_ESP32P4_REV_MAX_FULL is NOT 199!"
+            echo "❌ ERROR: CONFIG_ESP32P4_REV_MAX_FULL is STILL NOT 199 after patching!"
             grep "CONFIG_ESP32P4_REV_MAX_FULL" sdkconfig || echo "Setting not found in sdkconfig"
             ERRORS=$((ERRORS + 1))
           else
@@ -159,7 +201,7 @@ jobs:
           fi
 
           if ! grep -q "CONFIG_ESP_REV_MAX_FULL=199" sdkconfig; then
-            echo "❌ ERROR: CONFIG_ESP_REV_MAX_FULL is NOT 199!"
+            echo "❌ ERROR: CONFIG_ESP_REV_MAX_FULL is STILL NOT 199 after patching!"
             grep "CONFIG_ESP_REV_MAX_FULL" sdkconfig || echo "Setting not found in sdkconfig"
             ERRORS=$((ERRORS + 1))
           else
@@ -168,12 +210,11 @@ jobs:
 
           if [ $ERRORS -gt 0 ]; then
             echo ""
-            echo "❌ FATAL: Chip revision settings are incorrect!"
+            echo "❌ FATAL: Chip revision settings are incorrect even after patching!"
             echo "Firmware would not boot on ESP32-P4 v1.3 chips."
             echo ""
-            echo "Possible causes:"
-            echo "1. sdkconfig.defaults values were overridden by a component"
-            echo "2. Build system is not reading sdkconfig.defaults correctly"
+            echo "Checking for component overrides..."
+            grep -r "CONFIG_ESP32P4_REV_MAX_FULL" components/ || echo "No overrides found in components/"
             exit 1
           fi
 
