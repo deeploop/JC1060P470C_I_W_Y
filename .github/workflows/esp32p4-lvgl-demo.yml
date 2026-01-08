@@ -163,6 +163,10 @@ jobs:
             fi
 
             echo "✅ sdkconfig patched"
+            echo ""
+            echo "🔄 Running idf.py reconfigure to apply sdkconfig changes..."
+            idf.py reconfigure
+            echo "✅ Configuration applied"
           fi
 
           echo ""
