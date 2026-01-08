@@ -58,6 +58,49 @@ jobs:
           cd esp-idf
           ./install.sh esp32p4
 
+      - name: Verify project structure
+        working-directory: ESP-IDF/lvgl_demo_v9
+        run: |
+          echo "Checking project structure..."
+          ls -la
+          echo "Checking components directory..."
+          ls -la components/
+          echo "Checking main directory..."
+          ls -la main/
+
+      - name: Setup component manager
+        working-directory: ESP-IDF/lvgl_demo_v9
+        run: |
+          . ~/esp/esp-idf/export.sh
+          echo "Python version:"
+          python --version
+          echo "Installing/upgrading ESP-IDF component manager..."
+          pip install --upgrade idf-component-manager
+
+      - name: Cache managed components
+        uses: actions/cache@v4
+        with:
+          path: |
+            ESP-IDF/lvgl_demo_v9/managed_components
+            ESP-IDF/lvgl_demo_v9/.component_cache
+          key: managed-components-${{ hashFiles('ESP-IDF/lvgl_demo_v9/dependencies.lock') }}
+          restore-keys: |
+            managed-components-
+
+      - name: Download and verify dependencies
+        working-directory: ESP-IDF/lvgl_demo_v9
+        run: |
+          . ~/esp/esp-idf/export.sh
+          echo "Reconfiguring project to download components..."
+          idf.py reconfigure
+          echo "Verifying managed components..."
+          if [ -d "managed_components" ]; then
+            echo "Managed components directory exists"
+            ls -la managed_components/
+          else
+            echo "Warning: managed_components directory not found"
+          fi
+
       - name: Cache build output
         uses: actions/cache@v4
         with:
@@ -70,9 +113,13 @@ jobs:
 
       - name: Build project
         working-directory: ESP-IDF/lvgl_demo_v9
+        timeout-minutes: 30
         run: |
           . ~/esp/esp-idf/export.sh
-          idf.py build
+          echo "Starting build..."
+          echo "IDF_PATH: $IDF_PATH"
+          echo "Target: esp32p4"
+          idf.py -v build
 
       - name: Upload build artifacts
         uses: actions/upload-artifact@v4
@@ -88,25 +135,51 @@ jobs:
           retention-days: 30
 
       - name: Generate build summary
+        if: success()
         working-directory: ESP-IDF/lvgl_demo_v9
         run: |
           . ~/esp/esp-idf/export.sh
-          echo "## Build Summary" >> $GITHUB_STEP_SUMMARY
+          echo "## ✅ Build Success" >> $GITHUB_STEP_SUMMARY
           echo "" >> $GITHUB_STEP_SUMMARY
           echo "### Project Information" >> $GITHUB_STEP_SUMMARY
           echo "- **Target:** ESP32-P4" >> $GITHUB_STEP_SUMMARY
           echo "- **Project:** LVGL Demo v9" >> $GITHUB_STEP_SUMMARY
           echo "- **ESP-IDF Version:** v5.3" >> $GITHUB_STEP_SUMMARY
+          echo "- **LVGL Version:** 9.2.x" >> $GITHUB_STEP_SUMMARY
           echo "" >> $GITHUB_STEP_SUMMARY
           echo "### Binary Sizes" >> $GITHUB_STEP_SUMMARY
           echo "\`\`\`" >> $GITHUB_STEP_SUMMARY
-          idf.py size || true
+          idf.py size 2>&1 || echo "Size information not available"
           echo "\`\`\`" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "### Component Versions" >> $GITHUB_STEP_SUMMARY
+          if [ -d "managed_components" ]; then
+            echo "\`\`\`" >> $GITHUB_STEP_SUMMARY
+            ls -1 managed_components/ | sed 's/^/  - /' >> $GITHUB_STEP_SUMMARY
+            echo "\`\`\`" >> $GITHUB_STEP_SUMMARY
+          fi
           echo "" >> $GITHUB_STEP_SUMMARY
           echo "### Flash Command" >> $GITHUB_STEP_SUMMARY
           echo "\`\`\`bash" >> $GITHUB_STEP_SUMMARY
-          echo "idf.py -p PORT flash" >> $GITHUB_STEP_SUMMARY
+          echo "idf.py -p PORT flash monitor" >> $GITHUB_STEP_SUMMARY
           echo "\`\`\`" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "### Artifacts" >> $GITHUB_STEP_SUMMARY
+          echo "Build artifacts have been uploaded and can be downloaded from the workflow run." >> $GITHUB_STEP_SUMMARY
+
+      - name: Build failure diagnostics
+        if: failure()
+        working-directory: ESP-IDF/lvgl_demo_v9
+        run: |
+          echo "## ❌ Build Failed" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "### Diagnostics" >> $GITHUB_STEP_SUMMARY
+          echo "Please check the build log above for detailed error messages." >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          if [ -f build/CMakeCache.txt ]; then
+            echo "### CMake Configuration" >> $GITHUB_STEP_SUMMARY
+            echo "CMake cache file exists. Build got past configuration stage." >> $GITHUB_STEP_SUMMARY
+          fi
 
       - name: Check build warnings
         working-directory: ESP-IDF/lvgl_demo_v9
