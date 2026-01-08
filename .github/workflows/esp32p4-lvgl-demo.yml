@@ -192,6 +192,16 @@ jobs:
           restore-keys: |
             build-esp32p4-lvgl-v9-rev199-${{ hashFiles('ESP-IDF/lvgl_demo_v9/sdkconfig.defaults') }}-
 
+      - name: Force bootloader rebuild with correct chip revision
+        working-directory: ESP-IDF/lvgl_demo_v9
+        run: |
+          . ~/esp/esp-idf/export.sh
+          echo "🔥 Forcing bootloader rebuild to ensure chip revision support..."
+          echo ""
+          echo "Removing cached bootloader and partition table to force rebuild..."
+          rm -rf build/bootloader build/partition_table
+          echo "✅ Bootloader build artifacts removed - will be rebuilt with CONFIG_ESP32P4_REV_MAX_FULL=199"
+
       - name: Build project with verified chip revision settings
         working-directory: ESP-IDF/lvgl_demo_v9
         timeout-minutes: 30
