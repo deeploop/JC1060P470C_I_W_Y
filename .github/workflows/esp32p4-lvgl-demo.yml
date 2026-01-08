@@ -29,17 +29,49 @@ jobs:
         with:
           submodules: recursive
 
-      - name: Setup ESP-IDF
-        uses: espressif/esp-idf-ci-action@v1
+      - name: Setup Python
+        uses: actions/setup-python@v5
         with:
-          esp_idf_version: v5.3
-          target: esp32p4
-          path: ESP-IDF/lvgl_demo_v9
+          python-version: '3.11'
+
+      - name: Install ESP-IDF dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y git wget flex bison gperf python3 python3-pip python3-venv \
+            cmake ninja-build ccache libffi-dev libssl-dev dfu-util libusb-1.0-0
+
+      - name: Cache ESP-IDF
+        id: cache-esp-idf
+        uses: actions/cache@v4
+        with:
+          path: |
+            ~/esp/esp-idf
+            ~/.espressif
+          key: esp-idf-v5.3-esp32p4-${{ runner.os }}
+
+      - name: Clone and setup ESP-IDF
+        if: steps.cache-esp-idf.outputs.cache-hit != 'true'
+        run: |
+          mkdir -p ~/esp
+          cd ~/esp
+          git clone --recursive --branch v5.3 --depth 1 https://github.com/espressif/esp-idf.git
+          cd esp-idf
+          ./install.sh esp32p4
+
+      - name: Cache build output
+        uses: actions/cache@v4
+        with:
+          path: |
+            ESP-IDF/lvgl_demo_v9/build
+            ~/.ccache
+          key: build-esp32p4-lvgl-v9-${{ github.sha }}
+          restore-keys: |
+            build-esp32p4-lvgl-v9-
 
       - name: Build project
         working-directory: ESP-IDF/lvgl_demo_v9
         run: |
-          . ${IDF_PATH}/export.sh
+          . ~/esp/esp-idf/export.sh
           idf.py build
 
       - name: Upload build artifacts
@@ -58,7 +90,7 @@ jobs:
       - name: Generate build summary
         working-directory: ESP-IDF/lvgl_demo_v9
         run: |
-          . ${IDF_PATH}/export.sh
+          . ~/esp/esp-idf/export.sh
           echo "## Build Summary" >> $GITHUB_STEP_SUMMARY
           echo "" >> $GITHUB_STEP_SUMMARY
           echo "### Project Information" >> $GITHUB_STEP_SUMMARY
