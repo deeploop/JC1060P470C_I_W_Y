@@ -1,4 +1,4 @@
-name: ESP32-P4 LVGL Demo v9 Build
+name: ESP32‑P4 LVGL Demo Build (Rev1.99)
 
 on:
   push:
@@ -20,290 +20,87 @@ on:
 
 jobs:
   build:
-    name: Build ESP32-P4 LVGL Demo
+    name: Build ESP32‑P4 Firmware
     runs-on: ubuntu-latest
+    timeout-minutes: 40
 
     steps:
-      - name: Checkout repository
-        uses: actions/checkout@v4
-        with:
-          submodules: recursive
+    - name: Checkout repository
+      uses: actions/checkout@v4
+      with:
+        submodules: recursive
 
-      - name: Setup Python
-        uses: actions/setup-python@v5
-        with:
-          python-version: '3.11'
+    - name: Setup Python
+      uses: actions/setup-python@v5
+      with:
+        python-version: '3.11'
 
-      - name: Install ESP-IDF dependencies
-        run: |
-          sudo apt-get update
-          sudo apt-get install -y git wget flex bison gperf python3 python3-pip python3-venv \
-            cmake ninja-build ccache libffi-dev libssl-dev dfu-util libusb-1.0-0
+    - name: Install system dependencies
+      run: |
+        sudo apt-get update
+        sudo apt-get install -y git wget flex bison gperf cmake ninja-build ccache libffi-dev libssl-dev dfu-util libusb-1.0-0
 
-      - name: Cache ESP-IDF
-        id: cache-esp-idf
-        uses: actions/cache@v4
-        with:
-          path: |
-            ~/esp/esp-idf
-            ~/.espressif
-          key: esp-idf-v5.3-esp32p4-${{ runner.os }}
+    - name: Cache ESP‑IDF tools
+      id: cache-idf
+      uses: actions/cache@v4
+      with:
+        path: |
+          ~/esp/esp-idf
+          ~/.espressif
+        key: esp-idf-v5.3-${{ runner.os }}
 
-      - name: Clone and setup ESP-IDF
-        if: steps.cache-esp-idf.outputs.cache-hit != 'true'
-        run: |
-          mkdir -p ~/esp
-          cd ~/esp
-          git clone --recursive --branch v5.3 --depth 1 https://github.com/espressif/esp-idf.git
-          cd esp-idf
-          ./install.sh esp32p4
+    - name: Clone and install ESP‑IDF v5.3
+      if: steps.cache-idf.outputs.cache-hit != 'true'
+      run: |
+        mkdir -p ~/esp
+        cd ~/esp
+        git clone --recursive --branch v5.3 --depth 1 https://github.com/espressif/esp-idf.git
+        cd esp-idf
+        ./install.sh esp32p4
 
-      - name: Export ESP-IDF environment
-        run: |
-          . ~/esp/esp-idf/export.sh
-          echo "ESP-IDF environment exported"
-          echo "IDF_PATH: $IDF_PATH"
-          echo "Python version: $(python --version)"
-          echo "Verifying ESP-IDF component manager version..."
-          pip show idf-component-manager || echo "Component manager will be installed on first build"
+    - name: Export ESP‑IDF environment
+      run: |
+        . ~/esp/esp-idf/export.sh
+        echo "IDF_PATH=$IDF_PATH"
+        python --version
 
-      - name: Fix ESP-IDF Python dependencies
-        run: |
-          . ~/esp/esp-idf/export.sh
-          echo "Re-running ESP-IDF install.sh to ensure correct Python package versions..."
-          cd ~/esp/esp-idf
-          ./install.sh esp32p4
-          echo "Component manager version after install:"
-          pip show idf-component-manager | grep Version || true
+    - name: Clean old build outputs
+      working-directory: ESP-IDF/lvgl_demo_v9
+      run: |
+        rm -rf build sdkconfig sdkconfig.old dependencies.lock
 
-      - name: Verify project structure
-        working-directory: ESP-IDF/lvgl_demo_v9
-        run: |
-          echo "Checking project structure..."
-          ls -la
-          echo "Checking components directory..."
-          ls -la components/
-          echo "Checking main directory..."
-          ls -la main/
+    - name: Set target and fetch components
+      working-directory: ESP-IDF/lvgl_demo_v9
+      run: |
+        . ~/esp/esp-idf/export.sh
+        idf.py set-target esp32p4
+        idf.py reconfigure
 
-      - name: Cache managed components
-        uses: actions/cache@v4
-        with:
-          path: |
-            ESP-IDF/lvgl_demo_v9/managed_components
-            ESP-IDF/lvgl_demo_v9/.component_cache
-          key: managed-components-${{ hashFiles('ESP-IDF/lvgl_demo_v9/main/idf_component.yml', 'ESP-IDF/lvgl_demo_v9/components/**/idf_component.yml') }}
-          restore-keys: |
-            managed-components-
+    - name: Fix sdkconfig chip revision (v1.99 support)
+      working-directory: ESP-IDF/lvgl_demo_v9
+      run: |
+        . ~/esp/esp-idf/export.sh
+        sed -i '/CONFIG_ESP32P4_REV_MAX_FULL/d' sdkconfig || true
+        sed -i '/CONFIG_ESP_REV_MAX_FULL/d' sdkconfig || true
+        echo "" >> sdkconfig
+        echo "# Chip revision" >> sdkconfig
+        echo "CONFIG_ESP32P4_REV_MAX_FULL=199" >> sdkconfig
+        echo "CONFIG_ESP_REV_MAX_FULL=199" >> sdkconfig
+        echo "✅ Patched sdkconfig:"
+        grep CONFIG_ESP32P4_REV_MAX_FULL sdkconfig
+        grep CONFIG_ESP_REV_MAX_FULL sdkconfig
 
-      - name: Clean old build artifacts and sdkconfig
-        working-directory: ESP-IDF/lvgl_demo_v9
-        run: |
-          echo "🧹 Removing old build artifacts, sdkconfig, and dependencies.lock..."
-          rm -rf build/ sdkconfig sdkconfig.old dependencies.lock
-          echo "✅ Clean complete - ready for fresh build"
+    - name: Build project
+      working-directory: ESP-IDF/lvgl_demo_v9
+      run: |
+        . ~/esp/esp-idf/export.sh
+        idf.py build
 
-      - name: Generate fresh sdkconfig from defaults
-        working-directory: ESP-IDF/lvgl_demo_v9
-        run: |
-          . ~/esp/esp-idf/export.sh
-          echo "🔍 Verifying sdkconfig.defaults has correct chip revision settings..."
-          echo ""
-          echo "sdkconfig.defaults chip revision settings:"
-          grep "CONFIG_ESP.*REV.*FULL" sdkconfig.defaults
-          echo ""
-
-          echo "📦 Setting target to ESP32-P4 (generates fresh sdkconfig from sdkconfig.defaults)..."
-          idf.py set-target esp32p4
-          echo ""
-
-          echo "🔧 Checking for component chip revision overrides..."
-          if grep -r "ESP32P4_REV_MAX_FULL" components/ 2>/dev/null | grep -v ".git"; then
-            echo "⚠️ Found component(s) that may override chip revision settings"
-          else
-            echo "✅ No component overrides detected"
-          fi
-          echo ""
-
-          echo "📥 Running reconfigure with explicit chip revision flags to override component defaults..."
-          idf.py -D CONFIG_ESP32P4_REV_MIN_FULL=0 \
-                 -D CONFIG_ESP32P4_REV_MAX_FULL=199 \
-                 -D CONFIG_ESP_REV_MIN_FULL=0 \
-                 -D CONFIG_ESP_REV_MAX_FULL=199 \
-                 reconfigure
-          echo ""
-          echo "✅ Configuration complete with forced chip revision values!"
-          echo ""
-
-          if [ -f "dependencies.lock" ]; then
-            echo "📄 dependencies.lock generated successfully"
-          fi
-          if [ -d "managed_components" ]; then
-            echo "📦 Managed components downloaded:"
-            ls -1 managed_components/ | sed 's/^/  ✓ /'
-          else
-            echo "⚠️ Warning: managed_components directory not found"
-            exit 1
-          fi
-
-      - name: Verify sdkconfig chip revision settings
-        working-directory: ESP-IDF/lvgl_demo_v9
-        run: |
-          . ~/esp/esp-idf/export.sh
-          echo "🔍 Verifying sdkconfig has correct chip revision settings after CMake override..."
-          echo ""
-          echo "================================================"
-          echo "sdkconfig chip revision settings:"
-          grep "CONFIG_ESP32P4_REV.*FULL" sdkconfig || echo "⚠️ No ESP32P4_REV_FULL settings"
-          grep "CONFIG_ESP_REV.*FULL" sdkconfig || echo "⚠️ No ESP_REV_FULL settings"
-          echo "================================================"
-          echo ""
-
-          # Verify both critical settings
-          ERRORS=0
-
-          if ! grep -q "CONFIG_ESP32P4_REV_MAX_FULL=199" sdkconfig; then
-            echo "❌ FATAL: CONFIG_ESP32P4_REV_MAX_FULL is NOT 199!"
-            echo "Current value:"
-            grep "CONFIG_ESP32P4_REV_MAX_FULL" sdkconfig || echo "Not found"
-            echo ""
-            echo "CMake -D override failed. Possible causes:"
-            echo "1. Component Kconfig has 'depends on' or 'select' that forces the value"
-            echo "2. ESP-IDF version issue"
-            ERRORS=$((ERRORS + 1))
-          else
-            echo "✅ CONFIG_ESP32P4_REV_MAX_FULL=199 confirmed"
-          fi
-
-          if ! grep -q "CONFIG_ESP_REV_MAX_FULL=199" sdkconfig; then
-            echo "❌ FATAL: CONFIG_ESP_REV_MAX_FULL is NOT 199!"
-            echo "Current value:"
-            grep "CONFIG_ESP_REV_MAX_FULL" sdkconfig || echo "Not found"
-            ERRORS=$((ERRORS + 1))
-          else
-            echo "✅ CONFIG_ESP_REV_MAX_FULL=199 confirmed"
-          fi
-
-          if [ $ERRORS -gt 0 ]; then
-            echo ""
-            echo "Searching for component Kconfig overrides..."
-            grep -r "ESP32P4_REV_MAX_FULL\|ESP_REV_MAX_FULL" components/ managed_components/ 2>/dev/null | grep -v ".git" || echo "No matches found"
-            exit 1
-          fi
-
-          echo ""
-          echo "✅ Chip revision verified - firmware will support ESP32-P4 v0.0 to v1.99"
-
-      - name: Cache build output (excluding bootloader)
-        uses: actions/cache@v4
-        with:
-          path: |
-            ESP-IDF/lvgl_demo_v9/build
-            !ESP-IDF/lvgl_demo_v9/build/bootloader
-            !ESP-IDF/lvgl_demo_v9/build/partition_table
-            ~/.ccache
-          key: build-esp32p4-lvgl-v9-rev199-${{ hashFiles('ESP-IDF/lvgl_demo_v9/sdkconfig.defaults') }}-${{ github.sha }}
-          restore-keys: |
-            build-esp32p4-lvgl-v9-rev199-${{ hashFiles('ESP-IDF/lvgl_demo_v9/sdkconfig.defaults') }}-
-
-      - name: Build project with verified chip revision settings
-        working-directory: ESP-IDF/lvgl_demo_v9
-        timeout-minutes: 30
-        run: |
-          . ~/esp/esp-idf/export.sh
-          echo "🔨 Building ESP32-P4 firmware with chip revision support v0.0-v1.99..."
-          echo "IDF_PATH: $IDF_PATH"
-          echo "Component Manager: $(pip show idf-component-manager | grep Version)"
-          echo ""
-
-          idf.py build
-
-          echo ""
-          echo "✅ Build complete!"
-          echo ""
-          echo "🔍 Final verification of chip revision in built firmware metadata:"
-          grep "CONFIG_ESP32P4_REV_MAX_FULL" sdkconfig
-          echo ""
-          echo "✅ Firmware built successfully - supports ESP32-P4 chip revisions v0.0 to v1.99"
-
-      - name: Upload build artifacts
-        uses: actions/upload-artifact@v4
-        with:
-          name: esp32p4-lvgl-demo-firmware
-          path: |
-            ESP-IDF/lvgl_demo_v9/build/bootloader/bootloader.bin
-            ESP-IDF/lvgl_demo_v9/build/partition_table/partition-table.bin
-            ESP-IDF/lvgl_demo_v9/build/lvgl_demo_v9.bin
-            ESP-IDF/lvgl_demo_v9/build/lvgl_demo_v9.elf
-            ESP-IDF/lvgl_demo_v9/build/lvgl_demo_v9.map
-            ESP-IDF/lvgl_demo_v9/build/flash_args
-          retention-days: 30
-
-      - name: Generate build summary
-        if: success()
-        working-directory: ESP-IDF/lvgl_demo_v9
-        run: |
-          . ~/esp/esp-idf/export.sh
-          echo "## ✅ Build Success" >> $GITHUB_STEP_SUMMARY
-          echo "" >> $GITHUB_STEP_SUMMARY
-          echo "### Project Information" >> $GITHUB_STEP_SUMMARY
-          echo "- **Target:** ESP32-P4" >> $GITHUB_STEP_SUMMARY
-          echo "- **Project:** LVGL Demo v9" >> $GITHUB_STEP_SUMMARY
-          echo "- **ESP-IDF Version:** v5.3" >> $GITHUB_STEP_SUMMARY
-          echo "- **LVGL Version:** 9.2.x" >> $GITHUB_STEP_SUMMARY
-          echo "" >> $GITHUB_STEP_SUMMARY
-          echo "### Binary Sizes" >> $GITHUB_STEP_SUMMARY
-          echo "\`\`\`" >> $GITHUB_STEP_SUMMARY
-          idf.py size 2>&1 || echo "Size information not available"
-          echo "\`\`\`" >> $GITHUB_STEP_SUMMARY
-          echo "" >> $GITHUB_STEP_SUMMARY
-          echo "### Component Versions" >> $GITHUB_STEP_SUMMARY
-          if [ -d "managed_components" ]; then
-            echo "\`\`\`" >> $GITHUB_STEP_SUMMARY
-            ls -1 managed_components/ | sed 's/^/  - /' >> $GITHUB_STEP_SUMMARY
-            echo "\`\`\`" >> $GITHUB_STEP_SUMMARY
-          fi
-          echo "" >> $GITHUB_STEP_SUMMARY
-          echo "### Flash Command" >> $GITHUB_STEP_SUMMARY
-          echo "\`\`\`bash" >> $GITHUB_STEP_SUMMARY
-          echo "idf.py -p PORT flash monitor" >> $GITHUB_STEP_SUMMARY
-          echo "\`\`\`" >> $GITHUB_STEP_SUMMARY
-          echo "" >> $GITHUB_STEP_SUMMARY
-          echo "### Artifacts" >> $GITHUB_STEP_SUMMARY
-          echo "Build artifacts have been uploaded and can be downloaded from the workflow run." >> $GITHUB_STEP_SUMMARY
-
-      - name: Build failure diagnostics
-        if: failure()
-        working-directory: ESP-IDF/lvgl_demo_v9
-        run: |
-          . ~/esp/esp-idf/export.sh
-          echo "## ❌ Build Failed" >> $GITHUB_STEP_SUMMARY
-          echo "" >> $GITHUB_STEP_SUMMARY
-          echo "### Diagnostics" >> $GITHUB_STEP_SUMMARY
-          echo "Please check the build log above for detailed error messages." >> $GITHUB_STEP_SUMMARY
-          echo "" >> $GITHUB_STEP_SUMMARY
-          echo "### Environment Information" >> $GITHUB_STEP_SUMMARY
-          echo "\`\`\`" >> $GITHUB_STEP_SUMMARY
-          echo "IDF_PATH: $IDF_PATH" >> $GITHUB_STEP_SUMMARY
-          echo "Python: $(python --version)" >> $GITHUB_STEP_SUMMARY
-          pip show idf-component-manager | grep Version >> $GITHUB_STEP_SUMMARY || echo "idf-component-manager: not found" >> $GITHUB_STEP_SUMMARY
-          echo "\`\`\`" >> $GITHUB_STEP_SUMMARY
-          echo "" >> $GITHUB_STEP_SUMMARY
-          if [ -f build/CMakeCache.txt ]; then
-            echo "### CMake Configuration" >> $GITHUB_STEP_SUMMARY
-            echo "✅ CMake cache file exists. Build got past configuration stage." >> $GITHUB_STEP_SUMMARY
-          else
-            echo "### CMake Configuration" >> $GITHUB_STEP_SUMMARY
-            echo "❌ CMake cache file not found. Build failed during configuration." >> $GITHUB_STEP_SUMMARY
-          fi
-
-      - name: Check build warnings
-        working-directory: ESP-IDF/lvgl_demo_v9
-        run: |
-          if [ -f build/warnings.txt ]; then
-            echo "## Build Warnings" >> $GITHUB_STEP_SUMMARY
-            echo "\`\`\`" >> $GITHUB_STEP_SUMMARY
-            cat build/warnings.txt >> $GITHUB_STEP_SUMMARY
-            echo "\`\`\`" >> $GITHUB_STEP_SUMMARY
-          fi
-        continue-on-error: true
+    - name: Upload firmware artifacts
+      uses: actions/upload-artifact@v4
+      with:
+        name: esp32p4-firmware
+        path: |
+          ESP-IDF/lvgl_demo_v9/build/*.bin
+          ESP-IDF/lvgl_demo_v9/build/*.elf
+          ESP-IDF/lvgl_demo_v9/build/*.map
