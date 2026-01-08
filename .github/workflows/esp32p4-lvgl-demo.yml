@@ -1,0 +1,88 @@
+name: ESP32-P4 LVGL Demo v9 Build
+
+on:
+  push:
+    branches:
+      - main
+      - master
+      - 'claude/**'
+    paths:
+      - 'ESP-IDF/lvgl_demo_v9/**'
+      - '.github/workflows/esp32p4-lvgl-demo.yml'
+  pull_request:
+    branches:
+      - main
+      - master
+    paths:
+      - 'ESP-IDF/lvgl_demo_v9/**'
+      - '.github/workflows/esp32p4-lvgl-demo.yml'
+  workflow_dispatch:
+
+jobs:
+  build:
+    name: Build ESP32-P4 LVGL Demo
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+        with:
+          submodules: recursive
+
+      - name: Setup ESP-IDF
+        uses: espressif/esp-idf-ci-action@v1
+        with:
+          esp_idf_version: v5.3
+          target: esp32p4
+          path: ESP-IDF/lvgl_demo_v9
+
+      - name: Build project
+        working-directory: ESP-IDF/lvgl_demo_v9
+        run: |
+          . ${IDF_PATH}/export.sh
+          idf.py build
+
+      - name: Upload build artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: esp32p4-lvgl-demo-firmware
+          path: |
+            ESP-IDF/lvgl_demo_v9/build/bootloader/bootloader.bin
+            ESP-IDF/lvgl_demo_v9/build/partition_table/partition-table.bin
+            ESP-IDF/lvgl_demo_v9/build/lvgl_demo_v9.bin
+            ESP-IDF/lvgl_demo_v9/build/lvgl_demo_v9.elf
+            ESP-IDF/lvgl_demo_v9/build/lvgl_demo_v9.map
+            ESP-IDF/lvgl_demo_v9/build/flash_args
+          retention-days: 30
+
+      - name: Generate build summary
+        working-directory: ESP-IDF/lvgl_demo_v9
+        run: |
+          . ${IDF_PATH}/export.sh
+          echo "## Build Summary" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "### Project Information" >> $GITHUB_STEP_SUMMARY
+          echo "- **Target:** ESP32-P4" >> $GITHUB_STEP_SUMMARY
+          echo "- **Project:** LVGL Demo v9" >> $GITHUB_STEP_SUMMARY
+          echo "- **ESP-IDF Version:** v5.3" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "### Binary Sizes" >> $GITHUB_STEP_SUMMARY
+          echo "\`\`\`" >> $GITHUB_STEP_SUMMARY
+          idf.py size || true
+          echo "\`\`\`" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "### Flash Command" >> $GITHUB_STEP_SUMMARY
+          echo "\`\`\`bash" >> $GITHUB_STEP_SUMMARY
+          echo "idf.py -p PORT flash" >> $GITHUB_STEP_SUMMARY
+          echo "\`\`\`" >> $GITHUB_STEP_SUMMARY
+
+      - name: Check build warnings
+        working-directory: ESP-IDF/lvgl_demo_v9
+        run: |
+          if [ -f build/warnings.txt ]; then
+            echo "## Build Warnings" >> $GITHUB_STEP_SUMMARY
+            echo "\`\`\`" >> $GITHUB_STEP_SUMMARY
+            cat build/warnings.txt >> $GITHUB_STEP_SUMMARY
+            echo "\`\`\`" >> $GITHUB_STEP_SUMMARY
+          fi
+        continue-on-error: true
