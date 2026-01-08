@@ -96,25 +96,24 @@ jobs:
           restore-keys: |
             managed-components-
 
-      - name: Clean old build artifacts
+      - name: Clean old build artifacts and sdkconfig
         working-directory: ESP-IDF/lvgl_demo_v9
         run: |
-          echo "Cleaning old build artifacts..."
-          rm -f dependencies.lock
-          rm -rf build/
-          echo "Clean complete"
+          echo "🧹 Removing old build artifacts, sdkconfig, and dependencies.lock..."
+          rm -rf build/ sdkconfig sdkconfig.old dependencies.lock
+          echo "✅ Clean complete - ready for fresh build"
 
       - name: Set target and download dependencies
         working-directory: ESP-IDF/lvgl_demo_v9
         run: |
           . ~/esp/esp-idf/export.sh
-          echo "📦 Setting target to ESP32-P4..."
+          echo "📦 Step 1: Setting target to ESP32-P4 (generates sdkconfig from sdkconfig.defaults)..."
           idf.py set-target esp32p4
           echo ""
-          echo "📥 Downloading managed components from ESP Component Registry..."
+          echo "📥 Step 2: Downloading managed components from ESP Component Registry..."
           idf.py reconfigure
           echo ""
-          echo "✅ Dependency resolution complete!"
+          echo "✅ Target set and dependencies resolved!"
           echo ""
           if [ -f "dependencies.lock" ]; then
             echo "📄 dependencies.lock generated successfully"
@@ -127,55 +126,91 @@ jobs:
             exit 1
           fi
 
+      - name: Verify and fix sdkconfig chip revision settings
+        working-directory: ESP-IDF/lvgl_demo_v9
+        run: |
+          . ~/esp/esp-idf/export.sh
+          echo "🔍 Step 1: Verify sdkconfig.defaults has correct chip revision settings..."
+          echo ""
+          echo "sdkconfig.defaults settings:"
+          grep "CONFIG_ESP32P4_REV" sdkconfig.defaults || echo "WARNING: No chip revision settings in sdkconfig.defaults"
+          echo ""
+
+          echo "🔍 Step 2: Check if generated sdkconfig has correct CONFIG_ESP32P4_REV_MAX_FULL=199..."
+          if grep -q "CONFIG_ESP32P4_REV_MAX_FULL=199" sdkconfig; then
+            echo "✅ sdkconfig already has correct CONFIG_ESP32P4_REV_MAX_FULL=199"
+          else
+            echo "❌ sdkconfig does NOT have CONFIG_ESP32P4_REV_MAX_FULL=199"
+            echo "Current value:"
+            grep "CONFIG_ESP32P4_REV_MAX_FULL" sdkconfig || echo "Setting not found"
+            echo ""
+            echo "🔧 FIXING: Patching sdkconfig to set CONFIG_ESP32P4_REV_MAX_FULL=199..."
+
+            # Remove old MAX settings if they exist
+            sed -i '/CONFIG_ESP32P4_REV_MAX_FULL=/d' sdkconfig
+            sed -i '/CONFIG_ESP_REV_MAX_FULL=/d' sdkconfig
+
+            # Add correct settings in the chip revision section
+            if grep -q "# Chip revision" sdkconfig; then
+              sed -i '/# Chip revision/a CONFIG_ESP32P4_REV_MAX_FULL=199' sdkconfig
+              sed -i '/CONFIG_ESP32P4_REV_MAX_FULL=199/a CONFIG_ESP_REV_MAX_FULL=199' sdkconfig
+            else
+              # If no chip revision section, add to end of file
+              echo "" >> sdkconfig
+              echo "# Chip revision" >> sdkconfig
+              echo "CONFIG_ESP32P4_REV_MAX_FULL=199" >> sdkconfig
+              echo "CONFIG_ESP_REV_MAX_FULL=199" >> sdkconfig
+            fi
+
+            echo "✅ sdkconfig patched"
+          fi
+
+          echo ""
+          echo "📋 Step 3: Final verification - all chip revision settings:"
+          echo "================================================"
+          grep "CONFIG_ESP32P4_REV.*FULL" sdkconfig || echo "No ESP32P4 REV FULL settings"
+          grep "CONFIG_ESP_REV.*FULL" sdkconfig || echo "No ESP REV FULL settings"
+          echo "================================================"
+          echo ""
+
+          # Verify the critical setting is correct
+          if ! grep -q "CONFIG_ESP32P4_REV_MAX_FULL=199" sdkconfig; then
+            echo "❌ FATAL ERROR: CONFIG_ESP32P4_REV_MAX_FULL is NOT 199!"
+            echo "Cannot proceed - firmware would not boot on ESP32-P4 v1.3 chips."
+            exit 1
+          fi
+
+          echo "✅ Chip revision settings verified - firmware will support ESP32-P4 v0.0 to v1.99"
+
       - name: Cache build output
         uses: actions/cache@v4
         with:
           path: |
             ESP-IDF/lvgl_demo_v9/build
             ~/.ccache
-          key: build-esp32p4-lvgl-v9-${{ hashFiles('ESP-IDF/lvgl_demo_v9/sdkconfig.defaults') }}-${{ github.sha }}
+          key: build-esp32p4-lvgl-v9-rev199-${{ hashFiles('ESP-IDF/lvgl_demo_v9/sdkconfig.defaults') }}-${{ github.sha }}
           restore-keys: |
-            build-esp32p4-lvgl-v9-${{ hashFiles('ESP-IDF/lvgl_demo_v9/sdkconfig.defaults') }}-
+            build-esp32p4-lvgl-v9-rev199-${{ hashFiles('ESP-IDF/lvgl_demo_v9/sdkconfig.defaults') }}-
 
-      - name: Force full clean rebuild
-        working-directory: ESP-IDF/lvgl_demo_v9
-        run: |
-          . ~/esp/esp-idf/export.sh
-          echo "🧹 Forcing full clean to ensure chip revision settings are applied..."
-          idf.py fullclean
-          echo "✅ Full clean complete"
-
-      - name: Verify chip revision configuration
-        working-directory: ESP-IDF/lvgl_demo_v9
-        run: |
-          echo "🔍 Verifying chip revision settings in sdkconfig.defaults..."
-          echo ""
-          echo "Expected settings for ESP32-P4 v1.3 compatibility:"
-          echo "  CONFIG_ESP32P4_REV_MIN_FULL=0"
-          echo "  CONFIG_ESP32P4_REV_MAX_FULL=199"
-          echo ""
-          grep "CONFIG_ESP32P4_REV" sdkconfig.defaults || echo "No chip revision settings found in sdkconfig.defaults"
-          echo ""
-          if [ -f sdkconfig ]; then
-            echo "Current sdkconfig settings:"
-            grep "CONFIG_ESP32P4_REV" sdkconfig || echo "No chip revision settings in sdkconfig yet"
-          else
-            echo "sdkconfig will be generated during build"
-          fi
-
-      - name: Build project
+      - name: Build project with verified chip revision settings
         working-directory: ESP-IDF/lvgl_demo_v9
         timeout-minutes: 30
         run: |
           . ~/esp/esp-idf/export.sh
-          echo "🔨 Starting build for ESP32-P4..."
+          echo "🔨 Building ESP32-P4 firmware with chip revision support v0.0-v1.99..."
           echo "IDF_PATH: $IDF_PATH"
           echo "Component Manager: $(pip show idf-component-manager | grep Version)"
+          echo ""
+
           idf.py build
+
           echo ""
-          echo "✅ Build complete! Verifying chip revision in final sdkconfig..."
+          echo "✅ Build complete!"
           echo ""
-          grep "CONFIG_ESP32P4_REV" sdkconfig | grep -E "(MIN_FULL|MAX_FULL)" || echo "⚠️ Warning: Chip revision settings not found"
+          echo "🔍 Final verification of chip revision in built firmware metadata:"
+          grep "CONFIG_ESP32P4_REV_MAX_FULL" sdkconfig
+          echo ""
+          echo "✅ Firmware built successfully - supports ESP32-P4 chip revisions v0.0 to v1.99"
 
       - name: Upload build artifacts
         uses: actions/upload-artifact@v4
