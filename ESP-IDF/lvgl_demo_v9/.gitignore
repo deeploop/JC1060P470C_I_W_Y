@@ -1,3 +1,11 @@
 **/squareline/backup/**
 **/squareline/autosave/**
 components/lvgl/**
+
+# ESP-IDF build artifacts
+build/
+sdkconfig
+sdkconfig.old
+dependencies.lock
+managed_components/
+.component_cache/

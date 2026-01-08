@@ -92,24 +92,39 @@ jobs:
           path: |
             ESP-IDF/lvgl_demo_v9/managed_components
             ESP-IDF/lvgl_demo_v9/.component_cache
-          key: managed-components-${{ hashFiles('ESP-IDF/lvgl_demo_v9/dependencies.lock') }}
+          key: managed-components-${{ hashFiles('ESP-IDF/lvgl_demo_v9/main/idf_component.yml', 'ESP-IDF/lvgl_demo_v9/components/**/idf_component.yml') }}
           restore-keys: |
             managed-components-
+
+      - name: Clean old build artifacts
+        working-directory: ESP-IDF/lvgl_demo_v9
+        run: |
+          echo "Cleaning old build artifacts..."
+          rm -f dependencies.lock
+          rm -rf build/
+          echo "Clean complete"
 
       - name: Set target and download dependencies
         working-directory: ESP-IDF/lvgl_demo_v9
         run: |
           . ~/esp/esp-idf/export.sh
-          echo "Setting target to ESP32-P4..."
+          echo "📦 Setting target to ESP32-P4..."
           idf.py set-target esp32p4
-          echo "Reconfiguring project to download managed components..."
+          echo ""
+          echo "📥 Downloading managed components from ESP Component Registry..."
           idf.py reconfigure
-          echo "Verifying managed components..."
+          echo ""
+          echo "✅ Dependency resolution complete!"
+          echo ""
+          if [ -f "dependencies.lock" ]; then
+            echo "📄 dependencies.lock generated successfully"
+          fi
           if [ -d "managed_components" ]; then
-            echo "✅ Managed components downloaded successfully:"
-            ls -1 managed_components/
+            echo "📦 Managed components downloaded:"
+            ls -1 managed_components/ | sed 's/^/  ✓ /'
           else
             echo "⚠️ Warning: managed_components directory not found"
+            exit 1
           fi
 
       - name: Cache build output
