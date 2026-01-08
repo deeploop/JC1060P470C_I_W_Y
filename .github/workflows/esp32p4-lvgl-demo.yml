@@ -117,10 +117,22 @@ jobs:
           idf.py set-target esp32p4
           echo ""
 
-          echo "📥 Downloading managed components from ESP Component Registry..."
-          idf.py reconfigure
+          echo "🔧 Checking for component chip revision overrides..."
+          if grep -r "ESP32P4_REV_MAX_FULL" components/ 2>/dev/null | grep -v ".git"; then
+            echo "⚠️ Found component(s) that may override chip revision settings"
+          else
+            echo "✅ No component overrides detected"
+          fi
           echo ""
-          echo "✅ Target set and dependencies resolved!"
+
+          echo "📥 Running reconfigure with explicit chip revision flags to override component defaults..."
+          idf.py -D CONFIG_ESP32P4_REV_MIN_FULL=0 \
+                 -D CONFIG_ESP32P4_REV_MAX_FULL=199 \
+                 -D CONFIG_ESP_REV_MIN_FULL=0 \
+                 -D CONFIG_ESP_REV_MAX_FULL=199 \
+                 reconfigure
+          echo ""
+          echo "✅ Configuration complete with forced chip revision values!"
           echo ""
 
           if [ -f "dependencies.lock" ]; then
@@ -138,71 +150,35 @@ jobs:
         working-directory: ESP-IDF/lvgl_demo_v9
         run: |
           . ~/esp/esp-idf/export.sh
-          echo "🔍 Verifying generated sdkconfig has correct chip revision settings..."
+          echo "🔍 Verifying sdkconfig has correct chip revision settings after CMake override..."
           echo ""
           echo "================================================"
-          echo "Current sdkconfig chip revision settings:"
-          grep "CONFIG_ESP32P4_REV.*FULL" sdkconfig || echo "⚠️ No ESP32P4_REV_FULL settings found"
-          grep "CONFIG_ESP_REV.*FULL" sdkconfig || echo "⚠️ No ESP_REV_FULL settings found"
-          echo "================================================"
-          echo ""
-
-          # Check if values need patching
-          NEEDS_PATCH=0
-
-          if ! grep -q "CONFIG_ESP32P4_REV_MAX_FULL=199" sdkconfig; then
-            echo "⚠️ CONFIG_ESP32P4_REV_MAX_FULL is NOT 199 - needs patching"
-            NEEDS_PATCH=1
-          fi
-
-          if ! grep -q "CONFIG_ESP_REV_MAX_FULL=199" sdkconfig; then
-            echo "⚠️ CONFIG_ESP_REV_MAX_FULL is NOT 199 - needs patching"
-            NEEDS_PATCH=1
-          fi
-
-          if [ $NEEDS_PATCH -eq 1 ]; then
-            echo ""
-            echo "🔧 Patching sdkconfig to force correct chip revision values..."
-            echo ""
-
-            # Forcefully patch the values using sed
-            sed -i 's/CONFIG_ESP32P4_REV_MAX_FULL=.*/CONFIG_ESP32P4_REV_MAX_FULL=199/' sdkconfig
-            sed -i 's/CONFIG_ESP_REV_MAX_FULL=.*/CONFIG_ESP_REV_MAX_FULL=199/' sdkconfig
-
-            # Also ensure MIN values are correct
-            sed -i 's/CONFIG_ESP32P4_REV_MIN_FULL=.*/CONFIG_ESP32P4_REV_MIN_FULL=0/' sdkconfig
-            sed -i 's/CONFIG_ESP_REV_MIN_FULL=.*/CONFIG_ESP_REV_MIN_FULL=0/' sdkconfig
-
-            echo "✅ sdkconfig patched"
-            echo ""
-            echo "🔄 Running idf.py reconfigure to apply patched values..."
-            idf.py reconfigure
-            echo "✅ Configuration reloaded"
-            echo ""
-          fi
-
-          # Final verification after patching
-          echo "📋 Final verification after patching:"
-          echo "================================================"
-          grep "CONFIG_ESP32P4_REV.*FULL" sdkconfig || echo "⚠️ No ESP32P4_REV_FULL settings found"
-          grep "CONFIG_ESP_REV.*FULL" sdkconfig || echo "⚠️ No ESP_REV_FULL settings found"
+          echo "sdkconfig chip revision settings:"
+          grep "CONFIG_ESP32P4_REV.*FULL" sdkconfig || echo "⚠️ No ESP32P4_REV_FULL settings"
+          grep "CONFIG_ESP_REV.*FULL" sdkconfig || echo "⚠️ No ESP_REV_FULL settings"
           echo "================================================"
           echo ""
 
-          # Verify both critical settings - fail if still wrong
+          # Verify both critical settings
           ERRORS=0
 
           if ! grep -q "CONFIG_ESP32P4_REV_MAX_FULL=199" sdkconfig; then
-            echo "❌ ERROR: CONFIG_ESP32P4_REV_MAX_FULL is STILL NOT 199 after patching!"
-            grep "CONFIG_ESP32P4_REV_MAX_FULL" sdkconfig || echo "Setting not found in sdkconfig"
+            echo "❌ FATAL: CONFIG_ESP32P4_REV_MAX_FULL is NOT 199!"
+            echo "Current value:"
+            grep "CONFIG_ESP32P4_REV_MAX_FULL" sdkconfig || echo "Not found"
+            echo ""
+            echo "CMake -D override failed. Possible causes:"
+            echo "1. Component Kconfig has 'depends on' or 'select' that forces the value"
+            echo "2. ESP-IDF version issue"
             ERRORS=$((ERRORS + 1))
           else
             echo "✅ CONFIG_ESP32P4_REV_MAX_FULL=199 confirmed"
           fi
 
           if ! grep -q "CONFIG_ESP_REV_MAX_FULL=199" sdkconfig; then
-            echo "❌ ERROR: CONFIG_ESP_REV_MAX_FULL is STILL NOT 199 after patching!"
-            grep "CONFIG_ESP_REV_MAX_FULL" sdkconfig || echo "Setting not found in sdkconfig"
+            echo "❌ FATAL: CONFIG_ESP_REV_MAX_FULL is NOT 199!"
+            echo "Current value:"
+            grep "CONFIG_ESP_REV_MAX_FULL" sdkconfig || echo "Not found"
             ERRORS=$((ERRORS + 1))
           else
             echo "✅ CONFIG_ESP_REV_MAX_FULL=199 confirmed"
@@ -210,16 +186,13 @@ jobs:
 
           if [ $ERRORS -gt 0 ]; then
             echo ""
-            echo "❌ FATAL: Chip revision settings are incorrect even after patching!"
-            echo "Firmware would not boot on ESP32-P4 v1.3 chips."
-            echo ""
-            echo "Checking for component overrides..."
-            grep -r "CONFIG_ESP32P4_REV_MAX_FULL" components/ || echo "No overrides found in components/"
+            echo "Searching for component Kconfig overrides..."
+            grep -r "ESP32P4_REV_MAX_FULL\|ESP_REV_MAX_FULL" components/ managed_components/ 2>/dev/null | grep -v ".git" || echo "No matches found"
             exit 1
           fi
 
           echo ""
-          echo "✅ All chip revision settings verified - firmware will support ESP32-P4 v0.0 to v1.99"
+          echo "✅ Chip revision verified - firmware will support ESP32-P4 v0.0 to v1.99"
 
       - name: Cache build output (excluding bootloader)
         uses: actions/cache@v4
