@@ -118,6 +118,7 @@ esp_err_t esp_lcd_new_panel_jd9165ba(const esp_lcd_panel_io_handle_t io,
                                        const esp_lcd_panel_dev_config_t *panel_dev_config,
                                        esp_lcd_panel_handle_t *ret_panel)
 {
+    esp_err_t ret = ESP_OK;
     ESP_RETURN_ON_FALSE(io && panel_dev_config && ret_panel, ESP_ERR_INVALID_ARG, TAG, "invalid arguments");
 
     jd9165ba_panel_t *jd9165ba = calloc(1, sizeof(jd9165ba_panel_t));
@@ -134,8 +135,9 @@ esp_err_t esp_lcd_new_panel_jd9165ba(const esp_lcd_panel_io_handle_t io,
     jd9165ba->io = io;
     jd9165ba->reset_gpio_num = panel_dev_config->reset_gpio_num;
     jd9165ba->reset_level = panel_dev_config->flags.reset_active_high;
-    jd9165ba->width = panel_dev_config->width ? panel_dev_config->width : 1024;
-    jd9165ba->height = panel_dev_config->height ? panel_dev_config->height : 600;
+    // Fixed resolution for JD9165BA (1024x600)
+    jd9165ba->width = 1024;
+    jd9165ba->height = 600;
     jd9165ba->madctl_val = 0;
     jd9165ba->colmod_val = 0x77; // RGB888
 
@@ -158,7 +160,7 @@ err:
     if (jd9165ba) {
         free(jd9165ba);
     }
-    return ESP_FAIL;
+    return ret;
 }
 
 static esp_err_t panel_jd9165ba_del(esp_lcd_panel_t *panel)
