@@ -133,9 +133,35 @@ jobs:
           path: |
             ESP-IDF/lvgl_demo_v9/build
             ~/.ccache
-          key: build-esp32p4-lvgl-v9-${{ github.sha }}
+          key: build-esp32p4-lvgl-v9-${{ hashFiles('ESP-IDF/lvgl_demo_v9/sdkconfig.defaults') }}-${{ github.sha }}
           restore-keys: |
-            build-esp32p4-lvgl-v9-
+            build-esp32p4-lvgl-v9-${{ hashFiles('ESP-IDF/lvgl_demo_v9/sdkconfig.defaults') }}-
+
+      - name: Force full clean rebuild
+        working-directory: ESP-IDF/lvgl_demo_v9
+        run: |
+          . ~/esp/esp-idf/export.sh
+          echo "🧹 Forcing full clean to ensure chip revision settings are applied..."
+          idf.py fullclean
+          echo "✅ Full clean complete"
+
+      - name: Verify chip revision configuration
+        working-directory: ESP-IDF/lvgl_demo_v9
+        run: |
+          echo "🔍 Verifying chip revision settings in sdkconfig.defaults..."
+          echo ""
+          echo "Expected settings for ESP32-P4 v1.3 compatibility:"
+          echo "  CONFIG_ESP32P4_REV_MIN_FULL=0"
+          echo "  CONFIG_ESP32P4_REV_MAX_FULL=199"
+          echo ""
+          grep "CONFIG_ESP32P4_REV" sdkconfig.defaults || echo "No chip revision settings found in sdkconfig.defaults"
+          echo ""
+          if [ -f sdkconfig ]; then
+            echo "Current sdkconfig settings:"
+            grep "CONFIG_ESP32P4_REV" sdkconfig || echo "No chip revision settings in sdkconfig yet"
+          else
+            echo "sdkconfig will be generated during build"
+          fi
 
       - name: Build project
         working-directory: ESP-IDF/lvgl_demo_v9
@@ -146,6 +172,10 @@ jobs:
           echo "IDF_PATH: $IDF_PATH"
           echo "Component Manager: $(pip show idf-component-manager | grep Version)"
           idf.py build
+          echo ""
+          echo "✅ Build complete! Verifying chip revision in final sdkconfig..."
+          echo ""
+          grep "CONFIG_ESP32P4_REV" sdkconfig | grep -E "(MIN_FULL|MAX_FULL)" || echo "⚠️ Warning: Chip revision settings not found"
 
       - name: Upload build artifacts
         uses: actions/upload-artifact@v4
