@@ -74,21 +74,7 @@ jobs:
       run: |
         . ~/esp/esp-idf/export.sh
         idf.py set-target esp32p4
-        idf.py reconfigure
 
-    - name: Fix sdkconfig chip revision (v1.99 support)
-      working-directory: ESP-IDF/lvgl_demo_v9
-      run: |
-        . ~/esp/esp-idf/export.sh
-        sed -i '/CONFIG_ESP32P4_REV_MAX_FULL/d' sdkconfig || true
-        sed -i '/CONFIG_ESP_REV_MAX_FULL/d' sdkconfig || true
-        echo "" >> sdkconfig
-        echo "# Chip revision" >> sdkconfig
-        echo "CONFIG_ESP32P4_REV_MAX_FULL=199" >> sdkconfig
-        echo "CONFIG_ESP_REV_MAX_FULL=199" >> sdkconfig
-        echo "✅ Patched sdkconfig:"
-        grep CONFIG_ESP32P4_REV_MAX_FULL sdkconfig
-        grep CONFIG_ESP_REV_MAX_FULL sdkconfig
 
     - name: Build project
       working-directory: ESP-IDF/lvgl_demo_v9
