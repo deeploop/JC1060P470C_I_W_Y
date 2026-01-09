@@ -69,12 +69,41 @@ jobs:
       run: |
         rm -rf build sdkconfig sdkconfig.old dependencies.lock
 
-    - name: Set target and fetch components
+    - name: Set target and configure with chip revision support
       working-directory: ESP-IDF/lvgl_demo_v9
       run: |
         . ~/esp/esp-idf/export.sh
+        echo "Setting target ESP32-P4 and forcing chip revision v0.0-v1.99 support..."
         idf.py set-target esp32p4
 
+        echo "Forcing chip revision settings via CMake -D flags..."
+        idf.py -D CONFIG_ESP32P4_REV_MIN_FULL=0 \
+               -D CONFIG_ESP32P4_REV_MAX_FULL=199 \
+               -D CONFIG_ESP_REV_MIN_FULL=0 \
+               -D CONFIG_ESP_REV_MAX_FULL=199 \
+               reconfigure
+
+        echo "Verifying chip revision in sdkconfig..."
+        grep "CONFIG_ESP.*REV.*FULL" sdkconfig
+
+        if ! grep -q "CONFIG_ESP_REV_MAX_FULL=199" sdkconfig; then
+          echo "WARNING: CMake -D flags didn't work, force-patching sdkconfig..."
+          sed -i 's/^CONFIG_ESP32P4_REV_MAX_FULL=.*/CONFIG_ESP32P4_REV_MAX_FULL=199/' sdkconfig
+          sed -i 's/^CONFIG_ESP_REV_MAX_FULL=.*/CONFIG_ESP_REV_MAX_FULL=199/' sdkconfig
+          idf.py reconfigure
+        fi
+
+        echo "Final verification:"
+        grep "CONFIG_ESP.*REV.*_FULL" sdkconfig
+
+        if ! grep -q "CONFIG_ESP_REV_MAX_FULL=199" sdkconfig; then
+          echo "FATAL: Chip revision still wrong - firmware won't boot on v1.3!"
+          exit 1
+        fi
+
+        echo "Deleting bootloader cache to force rebuild..."
+        rm -rf build/bootloader build/partition_table
+        echo "✓ Chip revision configured for ESP32-P4 v0.0 to v1.99"
 
     - name: Build project
       working-directory: ESP-IDF/lvgl_demo_v9
